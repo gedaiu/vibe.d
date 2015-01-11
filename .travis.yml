@@ -8,7 +8,13 @@ d:
   - gdc-4.9.0
 
 script:
-  - dub test --compiler=$DC
+  - dub test :base --compiler=$DC
+  - dub test :mail --compiler=$DC
+  - dub test :http --compiler=$DC
+  - dub test :diet --compiler=$DC
+  - dub test :web --compiler=$DC
+  - dub test :mongodb --compiler=$DC
+  - dub test :redis --compiler=$DC
   - for ex in `\ls -1 examples/`; do (echo "[INFO] Building example $ex"; cd examples/$ex && dub build --compiler=$DC) || exit 1; done
   - for ex in `\ls -1 tests/`; do (echo "[INFO] Running test $ex"; cd tests/$ex && dub --compiler=$DC) || exit 1; done
 
