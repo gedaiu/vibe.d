@@ -22,6 +22,10 @@ docs.json
 __dummy.html
 
 .dub
+.trial
+trial_root.d
+trial_root
+trial.json
 dub.selections.json
 
 # Auto-downloaded 3rd-party
