@@ -207,44 +207,70 @@
 		}
 		---
 
-	Parameter_passing:
-		By default, parameter are passed via different methods depending on the
-		type of request. For POST and PATCH requests, they are passed via the
-		body as a JSON object, while for GET and PUT they are passed via the
-		query string.
+	Parameters:
+		Function parameters may be populated from the route, query string,
+		request body, or headers. They may optionally affect the route URL itself.
 
-		The default behavior can be overridden using one of the following annotations:
+		By default, parameters are passed differently depending on the type of
+		request (i.e., HTTP method). For GET and PUT, parameters are passed
+		via the query string (`<route>?paramA=valueA[?paramB=...]`),
+		while for POST and PATCH, they are passed via the request body
+		as a JSON object.
+
+		The default behavior can be overridden using one of the following
+		annotations, put as UDA on the relevant parameter:
 
 		$(UL
-			$(LI `@headerParam("name", "field")`: Applied on a method, it will
-				source the parameter named `name` from the request headers named
-				"field". If the parameter is `ref`, it will also be set as a
-				response header. Parameters declared as `out` will $(I only) be
-				set as a response header.)
-			$(LI `@queryParam("name", "field")`: Applied on a method, it will
-				source the parameter `name` from a field named "field" of the
-				query string.)
-			$(LI `@bodyParam("name", "field")`: Applied on a method, it will
-				source the parameter `name` from a field named "field" of the
-				request body in JSON format.)
+			$(LI `@viaHeader("field")`: Will	source the parameter on which it is
+				applied from the request headers named "field". If the parameter
+				is `ref`, it will also be set as a response header. Parameters
+				declared as `out` will $(I only) be set as a response header.)
+			$(LI `@viaQuery("field")`: Will source the parameter on which it is
+				applied from a field named "field" of the query string.)
+			$(LI `@viaBody("field")`: Will source the parameter on which it is
+				applied from a field named "field" of the request body
+				in JSON format, or, if no field is passed, will represent the
+				whole body. Note that in the later case, there can be no other
+				`viaBody` parameters.)
 		)
 
 		----
 		@path("/api/")
 		interface APIRoot {
 			// GET /api/header with 'Authorization' set
-			@headerParam("param", "Authorization")
-			string getHeader(string param);
+			string getHeader(@viaBody("Authorization") string param);
 
 			// GET /api/foo?param=...
-			@queryParam("param", "param")
-			string getFoo(int param);
+			string getFoo(@viaQuery("param") int param);
 
 			// GET /api/body with body set to { "myFoo": {...} }
-			@bodyParam("myFoo", "parameter")
-			string getBody(FooType myFoo);
+			string getBody(@viaBody("parameter") FooType myFoo);
+
+			// GET /api/full_body with body set to {...}
+			string getFullBody(@viaBody() FooType myFoo);
 		}
 		----
+
+		Further, how function parameters are named may affect the route:
+
+		$(UL
+			$(LI $(P Parameters with leading underscores (e.g. `_slug`) are also
+				interpreted as a route component, but only in the presence of
+				a `@path` UDA annotation. See Manual endpoint specification above.))
+			$(LI $(P Other function parameters do not affect or come from the path
+				 portion of the URL, and are are passed according to the default
+				 rules above: query string for GET and PUT; request body JSON
+				 for POST and PATCH.))
+			$(LI $(P $(B Deprecated:) If the first parameter is named `id`, this is
+				interpreted as a leading route component. For example,
+				`getName(int id)` becomes `/:id/name`.)
+				$(P Note that this style of parameter-based URL routing is
+				different than in many other web frameworks, where instead
+				this example would be routed as `/name/:id`.)
+				$(P See `Collection` for the preferred way to represent object
+				collections in REST interfaces))
+		)
+
 
 	Default_values:
 		Parameters with default values behave as optional parameters. If one is
@@ -252,7 +278,8 @@
 		value for the corresponding field in the request and the default value
 		is used instead.
 
-		Note that this can suffer from DMD bug #14369 (Vibe.d: #1043).
+		Note that if default parameters are not evaluable by CTFE, compilation
+		may fail due to DMD bug #14369 (Vibe.d tracking issue: #1043).
 
 	Aggregates:
 		When passing aggregates as parameters, those are serialized differently
@@ -301,8 +328,7 @@ import vibe.inet.message : InetHeaderMap;
 import vibe.web.internal.rest.common : RestInterface, Route, SubInterfaceType;
 import vibe.web.auth : AuthInfo, handleAuthentication, handleAuthorization, isAuthenticated;
 
-import std.algorithm : startsWith, endsWith, sort;
-import std.algorithm.searching : count;
+import std.algorithm : count, startsWith, endsWith, sort, splitter;
 import std.array : appender, split;
 import std.meta : AliasSeq;
 import std.range : isOutputRange;
@@ -364,10 +390,10 @@ import std.traits;
 		To return data, it is possible to either use the return value, which
 		will be sent as the response body, or individual `ref`/`out` parameters
 		can be used. The way they are represented in the response can be
-		customized by adding `@bodyParam`/`@headerParam` annotations in the
-		method declaration within the interface.
+		customized by adding `@viaBody`/`@viaHeader` annotations on the
+		parameter declaration of the method within the interface.
 
-		In case of errors, any `@headerParam` parameters are guaranteed to
+		In case of errors, any `@viaHeader` parameters are guaranteed to
 		be set in the response, so that applications such as HTTP basic
 		authentication can be implemented.
 
@@ -1603,13 +1629,13 @@ private HTTPServerRequestDelegate jsonMethodHandler(alias Func, size_t ridx, T)(
 				res.writeBody(cast(ubyte[])null);
 			} else {
 				// TODO: remove after deprecation period
-				auto ret = () @trusted { return __traits(getMember, inst, Method)(params); } ();
-
-				static if (!__traits(compiles, () @safe { evaluateOutputModifiers!Func(ret, req, res); } ()))
+				static if (!__traits(compiles, () @safe { evaluateOutputModifiers!Func(RT.init, req, res); } ()))
 					pragma(msg, "Non-@safe @after evaluators are deprecated - annotate @after evaluator function for " ~
 						T.stringof ~ "." ~ Method ~ " as @safe.");
 
-				ret = () @trusted { return evaluateOutputModifiers!CFunc(ret, req, res); } ();
+				auto ret = () @trusted {
+					return evaluateOutputModifiers!CFunc(
+						__traits(getMember, inst, Method)(params), req, res); } ();
 				returnHeaders();
 
 				string accept_str;
@@ -1636,7 +1662,7 @@ private HTTPServerRequestDelegate jsonMethodHandler(alias Func, size_t ridx, T)(
 						}();
 						res.writeBody(serialized_output.data, serializer.contentType);
 					}
-				res.statusCode = 406; // HTTP response: Not Acceptable, will trigger RestException on the client side
+				res.statusCode = HTTPStatus.notAcceptable; // will trigger RestException on the client side
 				res.writeBody(cast(ubyte[])null);
 			}
 		} catch (Exception e) {
@@ -1891,16 +1917,26 @@ private auto executeClientMethod(I, size_t ridx, ARGS...)
 	}
 
 	headers["Accept"] = settings.content_type;
-	reqhdrs["Content-Type"] = null;
+
+	// Do not require a `Content-Type` header if no response is expected
+	// https://github.com/vibe-d/vibe.d/issues/2521
+	static if (!is(RT == void))
+		// Don't override it if set from the parameter
+		if ("Content-Type" !in opthdrs)
+			opthdrs["Content-Type"] = null;
+
 	auto ret = request(URL(intf.baseURL), request_filter, request_body_filter,
 		sroute.method, url, headers, query.data, body_, reqhdrs, opthdrs,
 		intf.settings.httpClientSettings);
 	scope(exit) ret.dropBody();
 
 	static if (!is(RT == void)) {
-		string content_type = "";
-		if (const hdr = "Content-Type" in reqhdrs)
+		string content_type;
+		if (const hdr = "Content-Type" in opthdrs)
 			content_type = *hdr;
+		if (!content_type.length)
+			content_type = "application/octet-stream";
+
 		alias result_serializers = ResultSerializersT!Func;
 		immutable serializer_ind = get_matching_content_type!(result_serializers)(content_type);
 		foreach (i, serializer; result_serializers)
@@ -1979,7 +2015,7 @@ private HTTPClientResponse request(URL base_url,
 		if (request_filter) request_filter(req);
 
 		if (body_ != "")
-			req.writeBody(cast(const(ubyte)[])body_, hdrs.get("Content-Type", "application/json"));
+			req.writeBody(cast(const(ubyte)[])body_, hdrs.get("Content-Type", "application/json; charset=UTF-8"));
 	};
 
 	HTTPClientResponse client_res;
@@ -2176,7 +2212,8 @@ package int get_matching_content_type (T...)(string req_content_types_str) pure 
 	ContentType[] UDA_content_types;
 	foreach (UDA; packed_UDAs)
 	{
-		auto content_type_split = UDA.contentType.toLower().split("/");
+		auto ctype = UDA.contentType.splitter(';').front;
+		auto content_type_split = ctype.toLower().split("/");
 		assert(content_type_split.length == 2);
 		UDA_content_types ~= ContentType(content_type_split[0].strip(), content_type_split[1].strip());
 	}
@@ -2243,7 +2280,7 @@ unittest
 {
 	alias res = ResultSerializersT!(test1);
 	assert(res.length == 1);
-	assert(res[0].contentType == "application/json");
+	assert(res[0].contentType == "application/json; charset=UTF-8");
 
 	assert(get_matching_content_type!(res)("application/json") == 0);
 	assert(get_matching_content_type!(res)("application/*") == 0);
@@ -2286,7 +2323,7 @@ unittest
 package string getInterfaceValidationError(I)()
 out (result) { assert((result is null) == !result.length); }
 do {
-	import vibe.web.internal.rest.common : ParameterKind;
+	import vibe.web.internal.rest.common : ParameterKind, WebParamUDATuple;
 	import std.typetuple : TypeTuple;
 	import std.algorithm : strip;
 
@@ -2345,8 +2382,10 @@ do {
 		foreach (i, SC; ParameterStorageClassTuple!Func) {
 			static if (SC & PSC.out_ || (SC & PSC.ref_ && !is(ConstOf!(PT[i]) == PT[i])) ) {
 				mixin(GenCmp!("Loop", i, PN[i]).Decl);
-				alias Attr
-					= Filter!(mixin(GenCmp!("Loop", i, PN[i]).Name), WPAT);
+				alias Attr = TypeTuple!(
+					WebParamUDATuple!(Func, i),
+					Filter!(mixin(GenCmp!("Loop", i, PN[i]).Name), WPAT),
+				);
 				static if (Attr.length != 1) {
 					if (hack) return "%s: Parameter '%s' cannot be %s"
 						.format(FuncId, PN[i], SC & PSC.out_ ? "out" : "ref");
@@ -2493,6 +2532,7 @@ unittest {
 	interface HeaderRef {
 		@headerParam("auth", "auth")
 		string getData(ref string auth);
+		string getData2(@viaHeader("auth") ref string auth);
 	}
 	static assert(getInterfaceValidationError!HeaderRef is null,
 		      stripTestIdent(getInterfaceValidationError!HeaderRef));
@@ -2500,6 +2540,7 @@ unittest {
 	interface HeaderOut {
 		@headerParam("auth", "auth")
 		void getData(out string auth);
+		void getData(@viaHeader("auth") out string auth);
 	}
 	static assert(getInterfaceValidationError!HeaderOut is null,
 		      stripTestIdent(getInterfaceValidationError!HeaderOut));

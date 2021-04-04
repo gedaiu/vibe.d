@@ -34,7 +34,7 @@ import vibe.utils.string;
 import core.atomic;
 import core.vararg;
 import diet.traits : SafeFilterCallback, dietTraits;
-import std.algorithm : canFind;
+import std.algorithm : canFind, splitter;
 import std.array;
 import std.conv;
 import std.datetime;
@@ -199,6 +199,12 @@ void handleHTTPConnection(TCPConnection connection, HTTPServerContext context)
 	http_stream = connection;
 
 	scope (exit) connection.close();
+
+	// check wether the client's address is banned
+	foreach (ref virtual_host; context.m_virtualHosts)
+		if ((virtual_host.settings.rejectConnectionPredicate !is null) &&
+			virtual_host.settings.rejectConnectionPredicate(connection.remoteAddress()))
+			return;
 
 	// Set NODELAY to true, to avoid delays caused by sending the response
 	// header and body in separate chunks. Note that to avoid other performance
@@ -406,10 +412,10 @@ struct DefaultDietFilters {
 
 	static this()
 	{
-		filters["css"] = (input, scope output) { output(filterCss(input)); };
-		filters["javascript"] = (input, scope output) { output(filterJavascript(input)); };
-		filters["markdown"] = (input, scope output) { output(filterMarkdown(() @trusted { return cast(string)input; } ())); };
-		filters["htmlescape"] = (input, scope output) { output(filterHtmlescape(input)); };
+		filters["css"] = (in input, scope output) { output(filterCss(input)); };
+		filters["javascript"] = (in input, scope output) { output(filterJavascript(input)); };
+		filters["markdown"] = (in input, scope output) { output(filterMarkdown(() @trusted { return cast(string)input; } ())); };
+		filters["htmlescape"] = (in input, scope output) { output(filterHtmlescape(input)); };
 	}
 
 	static SafeFilterCallback[string] filters;
@@ -633,6 +639,16 @@ final class HTTPServerSettings {
 	*/
 	string hostName;
 
+	/** Provides a way to reject incoming connections as early as possible.
+
+		Allows to ban and unban network addresses and reduce the impact of DOS
+		attacks.
+
+		If the callback returns `true` for a specific `NetworkAddress`,
+		then all incoming requests from that address will be rejected.
+	*/
+	RejectConnectionPredicate rejectConnectionPredicate;
+
 	/** Configures optional features of the HTTP server
 
 		Disabling unneeded features can improve performance or reduce the server
@@ -793,6 +809,10 @@ final class HTTPServerSettings {
 		assert(s.port == 443);
 	}
 }
+
+
+/// Callback type used to determine whether to reject incoming connections
+alias RejectConnectionPredicate = bool delegate (in NetworkAddress) @safe nothrow;
 
 
 /**
@@ -988,7 +1008,10 @@ final class HTTPServerRequest : HTTPRequest {
 		*/
 		@property ref Json json() @safe {
 			if (_json.isNull) {
-				if (icmp2(contentType, "application/json") == 0 || icmp2(contentType, "application/vnd.api+json") == 0 ) {
+				auto splitter = contentType.splitter(';');
+				auto ctype = splitter.empty ? "" : splitter.front;
+
+				if (icmp2(ctype, "application/json") == 0 || icmp2(ctype, "application/vnd.api+json") == 0) {
 					auto bodyStr = bodyReader.readAllUTF8();
 					if (!bodyStr.empty) _json = parseJson(bodyStr);
 					else _json = Json.undefined;
@@ -997,6 +1020,11 @@ final class HTTPServerRequest : HTTPRequest {
 				}
 			}
 			return _json.get;
+		}
+
+		/// Get the json body when there is no content-type header
+		unittest {
+			assert(createTestHTTPServerRequest(URL("http://localhost/")).json.type == Json.Type.undefined);
 		}
 
 		private Nullable!Json _json;
