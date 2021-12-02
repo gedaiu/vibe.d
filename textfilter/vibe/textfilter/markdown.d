@@ -120,6 +120,22 @@ unittest {
 	);
 }
 
+/**
+	Returns the markdown blocks
+*/
+Block getMarkdownBlocks(string markdown_source, scope MarkdownSettings settings = null)
+{
+	import std.conv : to;
+
+	if (!settings) settings = new MarkdownSettings;
+	auto all_lines = splitLines(markdown_source);
+	auto lines = parseLines(all_lines, settings);
+	Block root_block;
+	parseBlocks(root_block, lines, null, settings);
+
+	return root_block;
+}
+
 final class MarkdownSettings {
 	/// Controls the capabilities of the parser.
 	MarkdownFlags flags = MarkdownFlags.vanillaMarkdown;
@@ -339,7 +355,7 @@ unittest {
 	assert (parseLines(lns, s) == [Line(LineType.plain, [IndentType.quote, IndentType.white], lns[0], "test")]);
 }
 
-private enum BlockType {
+enum BlockType {
 	plain,
 	text,
 	paragraph,
@@ -354,7 +370,7 @@ private enum BlockType {
 	figureCaption
 }
 
-private struct Block {
+struct Block {
 	BlockType type;
 	Attribute[] attributes;
 	string[] text;
@@ -363,12 +379,12 @@ private struct Block {
 	Alignment[] columns;
 }
 
-private struct Attribute {
+struct Attribute {
 	string attribute;
 	string value;
 }
 
-private enum Alignment {
+enum Alignment {
 	none = 0,
 	left = 1<<0,
 	right = 1<<1,
