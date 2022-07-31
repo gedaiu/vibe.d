@@ -759,7 +759,7 @@ private void writeBlock(R)(ref R dst, ref const Block block, LinkRef[string] lin
 	}
 }
 
-private void writeMarkdownEscaped(R)(ref R dst, ref const Block block, in LinkRef[string] links, scope MarkdownSettings settings)
+void writeMarkdownEscaped(R)(ref R dst, ref const Block block, in LinkRef[string] links, scope MarkdownSettings settings)
 {
 	auto lines = () @trusted { return cast(string[])block.text; } ();
 	auto text = settings.flags & MarkdownFlags.keepLineBreaks ? lines.join("<br>") : lines.join("\n");
@@ -768,7 +768,7 @@ private void writeMarkdownEscaped(R)(ref R dst, ref const Block block, in LinkRe
 }
 
 /// private
-private void writeMarkdownEscaped(R)(ref R dst, string ln, in LinkRef[string] linkrefs, scope MarkdownSettings settings)
+void writeMarkdownEscaped(R)(ref R dst, string ln, in LinkRef[string] linkrefs, scope MarkdownSettings settings)
 {
 	bool isAllowedURI(string lnk) {
 		auto idx = lnk.indexOf('/');
@@ -1585,7 +1585,7 @@ unittest {
 	assert ("....aBc...123...".asSlug.equal("abc-123"));
 }
 
-private struct LinkRef {
+struct LinkRef {
 	string id;
 	string url;
 	string title;
