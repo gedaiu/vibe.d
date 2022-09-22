@@ -571,6 +571,10 @@ final class MongoConnection {
 			// TODO: validate CRC
 		}
 
+		assert(bytes_read + msglen == m_bytesRead,
+			format!"Packet size mismatch! Expected %s bytes, but read %s."(
+				msglen, m_bytesRead - bytes_read));
+
 		return resid;
 	}
 
