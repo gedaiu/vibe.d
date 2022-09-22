@@ -581,6 +581,7 @@ final class MongoConnection {
 
 	private void certAuthenticate()
 	{
+		string cn = m_settings.getAuthDatabase ~ ".$cmd";
 		Bson cmd = Bson.emptyObject;
 		cmd["authenticate"] = Bson(1);
 		cmd["mechanism"] = Bson("MONGODB-X509");
@@ -596,7 +597,7 @@ final class MongoConnection {
 
 			cmd["user"] = Bson(m_settings.username);
 		}
-		query!Bson("$external.$cmd", QueryFlags.None, 0, -1, cmd, Bson(null),
+		query!Bson(cn, QueryFlags.None, 0, -1, cmd, Bson(null),
 			(cursor, flags, first_doc, num_docs) {
 				if ((flags & ReplyFlags.QueryFailure) || num_docs != 1)
 					throw new MongoDriverException("Calling authenticate failed.");
@@ -610,7 +611,7 @@ final class MongoConnection {
 
 	private void authenticate()
 	{
-		string cn = (m_settings.database == string.init ? "admin" : m_settings.database) ~ ".$cmd";
+		string cn = m_settings.getAuthDatabase ~ ".$cmd";
 
 		string nonce, key;
 
@@ -649,7 +650,7 @@ final class MongoConnection {
 	private void scramAuthenticate()
 	{
 		import vibe.db.mongo.sasl;
-		string cn = (m_settings.database == string.init ? "admin" : m_settings.database) ~ ".$cmd";
+		string cn = m_settings.getAuthDatabase ~ ".$cmd";
 
 		ScramState state;
 		string payload = state.createInitialRequest(m_settings.username);
