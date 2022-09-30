@@ -404,9 +404,9 @@ final class MongoConnection {
 			Appender!(Bson[])[string] docs;
 			recvMsg!true(id, (flags, root) @safe {
 				ret = root;
-			}, (ident, size) @safe {
+			}, (scope ident, size) @safe {
 				docs[ident] = appender!(Bson[]);
-			}, (ident, push) @safe {
+			}, (scope ident, push) @safe {
 				docs[ident].put(push);
 			});
 
@@ -507,7 +507,7 @@ final class MongoConnection {
 						T doc = deserializeBson!T(push);
 						on_doc(doc);
 					}
-				}, (ident, size) @safe {}, (ident, push) @safe {
+				}, (scope ident, size) @safe {}, (scope ident, push) @safe {
 					throw new MongoDriverException(formatErrorInfo("unexpected section type 1 in getMore response"));
 				});
 			}
@@ -592,7 +592,7 @@ final class MongoConnection {
 				T doc = deserializeBson!T(push);
 				on_doc(doc);
 			}
-		}, (ident, size) @safe {}, (ident, push) @safe {
+		}, (scope ident, size) @safe {}, (scope ident, push) @safe {
 			throw new MongoDriverException(formatErrorInfo("unexpected section type 1 in find response"));
 		});
 	}
