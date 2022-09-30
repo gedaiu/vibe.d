@@ -199,6 +199,8 @@ final class MongoConnection {
 			throw new MongoDriverException(format("Failed to connect to MongoDB server at %s:%s.", host.name, host.port), __FILE__, __LINE__, e);
 		}
 
+		scope (failure) disconnect();
+
 		m_allowReconnect = false;
 		scope (exit)
 			m_allowReconnect = true;
@@ -383,8 +385,6 @@ final class MongoConnection {
 	in(database.length, "runCommand requires a database argument")
 	{
 		import std.array;
-
-		scope (failure) disconnect();
 
 		string formatErrorInfo(string msg) @safe
 		{
@@ -961,6 +961,8 @@ final class MongoConnection {
 
 	private void authenticate()
 	{
+		scope (failure) disconnect();
+	
 		string cn = m_settings.getAuthDatabase;
 
 		auto cmd = Bson(["getnonce": Bson(1)]);
