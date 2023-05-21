@@ -138,7 +138,7 @@ struct MongoCollection {
 		enforceWireVersionConstraints(options, conn.description.maxWireVersion);
 		foreach (string k, v; serializeToBson(options).byKeyValue)
 			cmd[k] = v;
-		
+
 		database.runCommandChecked(cmd);
 		return res;
 	}
@@ -167,7 +167,7 @@ struct MongoCollection {
 		enforceWireVersionConstraints(options, conn.description.maxWireVersion);
 		foreach (string k, v; serializeToBson(options).byKeyValue)
 			cmd[k] = v;
-		
+
 		database.runCommandChecked(cmd);
 		return InsertManyResult(insertedIds);
 	}
@@ -587,7 +587,7 @@ struct MongoCollection {
 	  See_Also: $(LINK http://www.mongodb.org/display/DOCS/Removing)
 	 */
 	deprecated("Use `deleteOne` or `deleteMany` taking DeleteOptions instead, this method breaks in MongoDB 5.1 and onwards.")
-	void remove(T)(T selector, DeleteFlags flags = DeleteFlags.None)
+	@trusted void remove(T)(T selector, DeleteFlags flags = DeleteFlags.None)
 	{
 		assert(m_client !is null, "Removing from uninitialized MongoCollection.");
 		auto conn = m_client.lockConnection();
@@ -703,7 +703,7 @@ struct MongoCollection {
 	/**
 		Returns the count of documents that match the query for a collection or
 		view.
-		
+
 		The method wraps the `$group` aggregation stage with a `$sum` expression
 		to perform the count.
 
@@ -1144,9 +1144,9 @@ struct MongoCollection {
 	}
 
 	/**
-		Returns an array that holds a list of documents that identify and describe the existing indexes on the collection. 
+		Returns an array that holds a list of documents that identify and describe the existing indexes on the collection.
 	*/
-	MongoCursor!R listIndexes(R = Bson)() 
+	MongoCursor!R listIndexes(R = Bson)()
 	@safe {
 		MongoConnection conn = m_client.lockConnection();
 		if (conn.description.satisfiesVersion(WireVersion.v30)) {
