@@ -61,6 +61,8 @@ unittest {
 
 public import vibe.data.json;
 
+import vibe.internal.conv : enumToString;
+
 import std.algorithm;
 import std.array;
 import std.base64;
@@ -108,27 +110,27 @@ struct Bson {
 		minKey     = 0xff,  /// Internal value
 		maxKey     = 0x7f,  /// Internal value
 
-		End = end,                /// Compatibility alias - will be deprecated soon.
-		Double = double_,         /// Compatibility alias - will be deprecated soon.
-		String = string,          /// Compatibility alias - will be deprecated soon.
-		Object = object,          /// Compatibility alias - will be deprecated soon.
-		Array = array,            /// Compatibility alias - will be deprecated soon.
-		BinData = binData,        /// Compatibility alias - will be deprecated soon.
-		Undefined = undefined,    /// Compatibility alias - will be deprecated soon.
-		ObjectID = objectID,      /// Compatibility alias - will be deprecated soon.
-		Bool = bool_,             /// Compatibility alias - will be deprecated soon.
-		Date = date,              /// Compatibility alias - will be deprecated soon.
-		Null = null_,             /// Compatibility alias - will be deprecated soon.
-		Regex = regex,            /// Compatibility alias - will be deprecated soon.
-		DBRef = dbRef,            /// Compatibility alias - will be deprecated soon.
-		Code = code,              /// Compatibility alias - will be deprecated soon.
-		Symbol = symbol,          /// Compatibility alias - will be deprecated soon.
-		CodeWScope = codeWScope,  /// Compatibility alias - will be deprecated soon.
-		Int = int_,               /// Compatibility alias - will be deprecated soon.
-		Timestamp = timestamp,    /// Compatibility alias - will be deprecated soon.
-		Long = long_,             /// Compatibility alias - will be deprecated soon.
-		MinKey = minKey,          /// Compatibility alias - will be deprecated soon.
-		MaxKey = maxKey           /// Compatibility alias - will be deprecated soon.
+		deprecated("Use `end` instead.") End = end,                /// Compatibility alias
+		deprecated("Use `double_` instead.") Double = double_,         /// Compatibility alias
+		deprecated("Use `string` instead.") String = string,          /// Compatibility alias
+		deprecated("Use `object` instead.") Object = object,          /// Compatibility alias
+		deprecated("Use `array` instead.") Array = array,            /// Compatibility alias
+		deprecated("Use `binData` instead.") BinData = binData,        /// Compatibility alias
+		deprecated("Use `undefined` instead.") Undefined = undefined,    /// Compatibility alias
+		deprecated("Use `objectID` instead.") ObjectID = objectID,      /// Compatibility alias
+		deprecated("Use `bool_` instead.") Bool = bool_,             /// Compatibility alias
+		deprecated("Use `date` instead.") Date = date,              /// Compatibility alias
+		deprecated("Use `null_` instead.") Null = null_,             /// Compatibility alias
+		deprecated("Use `regex` instead.") Regex = regex,            /// Compatibility alias
+		deprecated("Use `dBRef` instead.") DBRef = dbRef,            /// Compatibility alias
+		deprecated("Use `code` instead.") Code = code,              /// Compatibility alias
+		deprecated("Use `symbol` instead.") Symbol = symbol,          /// Compatibility alias
+		deprecated("Use `codeWScope` instead.") CodeWScope = codeWScope,  /// Compatibility alias
+		deprecated("Use `int_` instead.") Int = int_,               /// Compatibility alias
+		deprecated("Use `timestamp` instead.") Timestamp = timestamp,    /// Compatibility alias
+		deprecated("Use `long_` instead.") Long = long_,             /// Compatibility alias
+		deprecated("Use `minKey` instead.") MinKey = minKey,          /// Compatibility alias
+		deprecated("Use `maxKey` instead.") MaxKey = maxKey           /// Compatibility alias
 	}
 
 	// length + 0 byte end for empty lists (map, array)
@@ -202,7 +204,7 @@ struct Bson {
 	*/
 	this(double value) { opAssign(value); }
 	/// ditto
-	this(string value, Type type = Type.string)
+	this(scope const(char)[] value, Type type = Type.string)
 	{
 		assert(type == Type.string || type == Type.code || type == Type.symbol);
 		opAssign(value);
@@ -250,13 +252,14 @@ struct Bson {
 		m_type = Type.double_;
 	}
 	/// ditto
-	void opAssign(string value)
+	void opAssign(scope const(char)[] value)
 	{
 		import std.utf;
+		import std.string : representation;
 		debug std.utf.validate(value);
 		auto app = appender!bdata_t();
 		app.put(toBsonData(cast(int)value.length+1));
-		app.put(cast(bdata_t)value);
+		app.put(value.representation);
 		app.put(cast(ubyte)0);
 		m_data = app.data;
 		m_type = Type.string;
@@ -284,7 +287,7 @@ struct Bson {
 		auto app = appender!bdata_t();
 		foreach( i, ref v; value ){
 			app.put(v.type);
-			putCString(app, to!string(i));
+			putCString(app, .to!string(i));
 			app.put(v.data);
 		}
 
@@ -387,7 +390,7 @@ struct Bson {
 
 		If the BSON type of the value does not match the D type, an exception is thrown.
 
-		See_Also: `deserializeBson`, `opt`
+		See_Also: `deserializeBson`, `opt`, `to`
 	*/
 	T opCast(T)() const { return get!T(); }
 	/// ditto
@@ -460,7 +463,7 @@ struct Bson {
 		else static if( is(T == UUID) ){
 			checkType(Type.binData);
 			auto bbd = this.get!BsonBinData();
-			enforce(bbd.type == BsonBinData.Type.uuid, "BsonBinData value is type '"~to!string(bbd.type)~"', expected to be uuid");
+			enforce(bbd.type == BsonBinData.Type.uuid, "BsonBinData value is type '"~bbd.type.enumToString~"', expected to be uuid");
 			const ubyte[16] b = bbd.rawData;
 			return UUID(b);
 		}
@@ -469,6 +472,112 @@ struct Bson {
 			return BsonDate(fromBsonData!long(m_data)).toSysTime();
 		}
 		else static assert(false, "Cannot cast "~typeof(this).stringof~" to '"~T.stringof~"'.");
+	}
+
+	/**
+		Converts the BSON value to a D value.
+
+		In addition to working like `get!T`, the following conversions are done:
+		- `to!double` - casts int and long to double
+		- `to!long` - casts int to long
+		- `to!string` - returns the same as toString
+
+		See_Also: `deserializeBson`, `opt`, `get`
+	*/
+	@property T to(T)()
+	const {
+		static if( is(T == double) ){
+			checkType(Type.double_, Type.long_, Type.int_);
+			if (m_type == Type.double_)
+				return fromBsonData!double(m_data);
+			else if (m_type == Type.int_)
+				return cast(double)fromBsonData!int(m_data);
+			else if (m_type == Type.long_)
+				return cast(double)fromBsonData!long(m_data);
+			else
+				assert(false);
+		}
+		else static if( is(T == string) ){
+			return toString();
+		}
+		else static if( is(Unqual!T == Bson[string]) || is(Unqual!T == const(Bson)[string]) ){
+			checkType(Type.object);
+			Bson[string] ret;
+			auto d = m_data[4 .. $];
+			while( d.length > 0 ){
+				auto tp = cast(Type)d[0];
+				if( tp == Type.end ) break;
+				d = d[1 .. $];
+				auto key = skipCString(d);
+				auto value = Bson(tp, d);
+				d = d[value.data.length .. $];
+
+				ret[key] = value;
+			}
+			return cast(T)ret;
+		}
+		else static if( is(Unqual!T == Bson[]) || is(Unqual!T == const(Bson)[]) ){
+			checkType(Type.array);
+			Bson[] ret;
+			auto d = m_data[4 .. $];
+			while( d.length > 0 ){
+				auto tp = cast(Type)d[0];
+				if( tp == Type.end ) break;
+				/*auto key = */skipCString(d); // should be '0', '1', ...
+				auto value = Bson(tp, d);
+				d = d[value.data.length .. $];
+
+				ret ~= value;
+			}
+			return cast(T)ret;
+		}
+		else static if( is(T == BsonBinData) ){
+			checkType(Type.binData);
+			auto size = fromBsonData!int(m_data);
+			auto type = cast(BsonBinData.Type)m_data[4];
+			return BsonBinData(type, m_data[5 .. 5+size]);
+		}
+		else static if( is(T == BsonObjectID) ){ checkType(Type.objectID); return BsonObjectID(m_data[0 .. 12]); }
+		else static if( is(T == bool) ){ checkType(Type.bool_); return m_data[0] != 0; }
+		else static if( is(T == BsonDate) ){ checkType(Type.date); return BsonDate(fromBsonData!long(m_data)); }
+		else static if( is(T == SysTime) ){
+			checkType(Type.date);
+			string data = cast(string)m_data[4 .. 4+fromBsonData!int(m_data)-1];
+			return SysTime.fromISOString(data);
+		}
+		else static if( is(T == BsonRegex) ){
+			checkType(Type.regex);
+			auto d = m_data[0 .. $];
+			auto expr = skipCString(d);
+			auto options = skipCString(d);
+			return BsonRegex(expr, options);
+		}
+		else static if( is(T == int) ){ checkType(Type.int_); return fromBsonData!int(m_data); }
+		else static if( is(T == BsonTimestamp) ){ checkType(Type.timestamp); return BsonTimestamp(fromBsonData!long(m_data)); }
+		else static if( is(T == long) ){
+			checkType(Type.long_, Type.int_);
+			if (m_type == Type.int_)
+				return cast(long)fromBsonData!int(m_data);
+			else if (m_type == Type.long_)
+				return fromBsonData!long(m_data);
+			else
+				assert(false);
+		}
+		else static if( is(T == Json) ){
+			return this.toJson();
+		}
+		else static if( is(T == UUID) ){
+			checkType(Type.binData);
+			auto bbd = this.get!BsonBinData();
+			enforce(bbd.type == BsonBinData.Type.uuid, "BsonBinData value is type '"~bbd.type.enumToString~"', expected to be uuid");
+			const ubyte[16] b = bbd.rawData;
+			return UUID(b);
+		}
+		else static if( is(T == SysTime) ) {
+			checkType(Type.date);
+			return BsonDate(fromBsonData!long(m_data)).toSysTime();
+		}
+		else static assert(false, "Cannot convert "~typeof(this).stringof~" to '"~T.stringof~"'.");
 	}
 
 	/** Returns the native type for this BSON if it matches the current runtime type.
@@ -494,7 +603,7 @@ struct Bson {
 	*/
 	@property size_t length() const {
 		switch( m_type ){
-			default: enforce(false, "Bson objects of type "~to!string(m_type)~" do not have a length field."); break;
+			default: enforce(false, "Bson objects of type "~m_type.enumToString~" do not have a length field."); break;
 			case Type.string, Type.code, Type.symbol: return (cast(string)this).length;
 			case Type.array: return byValue.walkLength;
 			case Type.object: return byValue.walkLength;
@@ -554,7 +663,47 @@ struct Bson {
 	*/
 	string toString()
 	const {
-		return toJson().toString();
+		auto ret = appender!string;
+		toString(ret);
+		return ret.data;
+	}
+
+	void toString(R)(ref R range)
+	const {
+		switch (type)
+		{
+		case Bson.Type.objectID:
+			range.put("ObjectID(");
+			range.put(get!BsonObjectID().toString());
+			range.put(")");
+			break;
+		case Bson.Type.object:
+			// keep ordering of objects
+			range.put("{");
+			bool first = true;
+			foreach (k, v; this.byKeyValue)
+			{
+				if (!first) range.put(",");
+				first = false;
+				range.put(Json(k).toString());
+				range.put(":");
+				v.toString(range);
+			}
+			range.put("}");
+			break;
+		case Bson.Type.array:
+			range.put("[");
+			foreach (i, v; this.byIndexValue)
+			{
+				if (i != 0) range.put(",");
+				v.toString(range);
+			}
+			range.put("]");
+			break;
+		default:
+			range.put(toJson().toString());
+			break;
+		}
 	}
 
 	import std.typecons : Nullable;
@@ -810,7 +959,7 @@ struct Bson {
 		foreach( t; valid_types )
 			if( m_type == t )
 				return;
-		throw new Exception("BSON value is type '"~to!string(m_type)~"', expected to be one of "~to!string(valid_types));
+		throw new Exception("BSON value is type '"~m_type.enumToString~"', expected to be one of "~valid_types.map!(t => t.enumToString).join(", "));
 	}
 }
 
@@ -829,12 +978,12 @@ struct BsonBinData {
 		md5 = 0x05,
 		userDefined = 0x80,
 
-		Generic = generic,          /// Compatibility alias - will be deprecated soon
-		Function = function_,       /// Compatibility alias - will be deprecated soon
-		BinaryOld = binaryOld,      /// Compatibility alias - will be deprecated soon
-		UUID = uuid,                /// Compatibility alias - will be deprecated soon
-		MD5 = md5,                  /// Compatibility alias - will be deprecated soon
-		UserDefined	= userDefined,  /// Compatibility alias - will be deprecated soon
+		deprecated("Use `generic` instead") Generic = generic,          /// Compatibility alias
+		deprecated("Use `function_` instead") Function = function_,       /// Compatibility alias
+		deprecated("Use `binaryOld` instead") BinaryOld = binaryOld,      /// Compatibility alias
+		deprecated("Use `uuid` instead") UUID = uuid,                /// Compatibility alias
+		deprecated("Use `md5` instead") MD5 = md5,                  /// Compatibility alias
+		deprecated("Use `userDefined` instead") UserDefined	= userDefined,  /// Compatibility alias
 	}
 
 	private {
@@ -1558,7 +1707,7 @@ struct BsonSerializer {
 	//
 	void readDictionary(Traits)(scope void delegate(string) @safe entry_callback)
 	{
-		enforce(m_inputData.type == Bson.Type.object, "Expected object instead of "~m_inputData.type.to!string());
+		enforce(m_inputData.type == Bson.Type.object, "Expected object instead of "~m_inputData.type.enumToString);
 		auto old = m_inputData;
 		foreach (string name, value; old.byKeyValue) {
 			m_inputData = value;
@@ -1572,7 +1721,7 @@ struct BsonSerializer {
 
 	void readArray(Traits)(scope void delegate(size_t) @safe size_callback, scope void delegate() @safe entry_callback)
 	{
-		enforce(m_inputData.type == Bson.Type.array, "Expected array instead of "~m_inputData.type.to!string());
+		enforce(m_inputData.type == Bson.Type.array, "Expected array instead of "~m_inputData.type.enumToString);
 		auto old = m_inputData;
 		foreach (value; old.byValue) {
 			m_inputData = value;
@@ -1620,7 +1769,7 @@ struct BsonSerializer {
 		} else static if (is(T : const(ubyte)[])) {
 			auto ret = m_inputData.get!BsonBinData.rawData;
 			static if (isStaticArray!T) return cast(T)ret[0 .. T.length];
-			else static if (is(T : immutable(char)[])) return ret;
+			else static if (is(T : immutable(ubyte)[])) return ret;
 			else return cast(T)ret.dup;
 		} else return m_inputData.get!T();
 	}
@@ -1752,6 +1901,17 @@ unittest
 	auto fields = getPipeline(a, b).serializeToBson()["pipeline"].get!(Bson[]);
 	assert(fields[0]["foo"].get!string == "bar");
 	assert(fields[1].get!int == 42);
+}
+
+@safe unittest {
+	struct S {
+		immutable(ubyte)[][] arrays;
+	}
+
+	S s = S([[1, 2, 3], [4, 5, 6]]);
+	S t;
+	deserializeBson(t, serializeToBson(s));
+	assert(t == s);
 }
 
 private string skipCString(ref bdata_t data)

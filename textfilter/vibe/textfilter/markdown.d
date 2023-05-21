@@ -515,7 +515,24 @@ pure @safe {
 					b.type = ln.type == LineType.uList ? BlockType.uList : BlockType.oList;
 
 					auto itemindent = base_indent ~ IndentType.white;
-					bool firstItem = true, paraMode = false;
+					bool paraMode = false;
+
+					// look ahead to determine whether the list is in paragraph
+					// mode (one or multiple <p></p> nested within each item
+					bool couldBeParaMode = false;
+					foreach (pln; lines[1 .. $]) {
+						if (pln.type == LineType.blank) {
+							couldBeParaMode = true;
+							continue;
+						}
+						if (!pln.indent.startsWith(base_indent)) break;
+						if (pln.indent == base_indent) {
+							if (pln.type == ln.type)
+								paraMode = couldBeParaMode;
+							break;
+						}
+					}
+
 					while (!lines.empty && lines.front.type == ln.type
 						&& lines.front.indent == base_indent)
 					{
@@ -523,13 +540,6 @@ pure @safe {
 						itm.text = skipText(lines, itemindent);
 						itm.text[0] = removeListPrefix(itm.text[0], ln.type);
 
-						// emit <p>...</p> if there are blank lines between the items
-						if (firstItem && !lines.empty && lines.front.type == LineType.blank) {
-							lines.popFront();
-							if (!lines.empty && lines.front.type == ln.type)
-								paraMode = true;
-						}
-						firstItem = false;
 						if (paraMode) {
 							Block para;
 							para.type = BlockType.paragraph;
@@ -953,6 +963,7 @@ pure @safe {
 	auto cols = ln.splitter('|');
 	size_t cnt = 0;
 	foreach (c; cols) {
+		c = c.strip();
 		if (c.startsWith(':')) c = c[1 .. $];
 		if (c.endsWith(':')) c = c[0 .. $-1];
 		if (c.length < 3 || !c.allOf("-"))
@@ -960,6 +971,16 @@ pure @safe {
 		cnt++;
 	}
 	return cnt >= 2;
+}
+
+unittest {
+	assert(isTableSeparatorLine("|----|---|"));
+	assert(isTableSeparatorLine("|:----:|---|"));
+	assert(isTableSeparatorLine("---|----"));
+	assert(isTableSeparatorLine("| --- | :---- |"));
+	assert(!isTableSeparatorLine("| ---- |"));
+	assert(!isTableSeparatorLine("| -- | -- |"));
+	assert(!isTableSeparatorLine("| --- - | ---- |"));
 }
 
 private auto getTableColumns(string line)
@@ -1683,6 +1704,8 @@ private struct Link {
 		"<ol>\n<li>foo\n</li>\n<li>bar\n</li>\n</ol>\n");
 	assert (filterMarkdown("1. foo\n\n2. bar") ==
 		"<ol>\n<li><p>foo\n</p>\n</li>\n<li><p>bar\n</p>\n</li>\n</ol>\n");
+	assert (filterMarkdown("1. foo\n\n\tbar\n\n2. bar\n\n\tbaz\n\n") ==
+		"<ol>\n<li><p>foo\n</p>\n<p>bar\n</p>\n</li>\n<li><p>bar\n</p>\n<p>baz\n</p>\n</li>\n</ol>\n");
 }
 
 @safe unittest { // figures

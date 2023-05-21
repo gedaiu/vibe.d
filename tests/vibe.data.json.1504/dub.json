@@ -2,7 +2,6 @@
     "name": "tests",
     "description": "Command-line argument test",
     "dependencies": {
-        "vibe-d:data": {"path": "../../"},
-        "vibe-d:core": {"path": "../../"}
+        "vibe-d:data": {"path": "../../"}
     }
 }

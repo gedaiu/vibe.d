@@ -81,29 +81,6 @@ FreeListRef!ZlibOutputStream createGzipOutputStreamFL(OutputStream)(OutputStream
 
 
 /**
-	Writes any data compressed in deflate format to the specified output stream.
-*/
-deprecated("Use createDeflateOutputStream instead.")
-final class DeflateOutputStream : ZlibOutputStream {
-	@safe this(OutputStream dst)
-	{
-		super(dst, HeaderFormat.deflate);
-	}
-}
-
-
-/**
-	Writes any data compressed in gzip format to the specified output stream.
-*/
-deprecated("Use createGzipOutputStream instead.")
-final class GzipOutputStream : ZlibOutputStream {
-	@safe this(OutputStream dst)
-	{
-		super(dst, HeaderFormat.gzip);
-	}
-}
-
-/**
 	Generic zlib output stream.
 */
 class ZlibOutputStream : OutputStream {
@@ -122,12 +99,6 @@ class ZlibOutputStream : OutputStream {
 		deflate
 	}
 
-	deprecated("Use createGzipOutputStream/createDeflateOutputStream instead.")
-	this(OutputStream dst, HeaderFormat type, int level = Z_DEFAULT_COMPRESSION)
-	{
-		this(interfaceProxy!OutputStream(dst), type, level, true);
-	}
-
 	/// private
 	this(InterfaceProxy!OutputStream dst, HeaderFormat type, int level, bool dummy)
 	{
@@ -140,7 +111,15 @@ class ZlibOutputStream : OutputStream {
 			() @trusted { deflateEnd(&m_zstream); } ();
 	}
 
-	final size_t write(in ubyte[] data, IOMode mode)
+	static if (is(typeof(.OutputStream.outputStreamVersion)) && .OutputStream.outputStreamVersion > 1) {
+		final override size_t write(scope const(ubyte)[] bytes_, IOMode mode) { return doWrite(bytes_, mode); }
+	} else {
+		final override size_t write(in ubyte[] bytes_, IOMode mode) { return doWrite(bytes_, mode); }
+	}
+
+	alias write = OutputStream.write;
+
+	private size_t doWrite(scope const(ubyte)[] data, IOMode mode)
 	{
 		// TODO: support IOMode!
 		if (!data.length) return 0;
@@ -154,8 +133,6 @@ class ZlibOutputStream : OutputStream {
 		m_zstream.next_in = null;
 		return data.length;
 	}
-
-	alias write = OutputStream.write;
 
 	final void flush()
 	{
@@ -201,31 +178,6 @@ class ZlibOutputStream : OutputStream {
 	}
 }
 
-
-/**
-	Takes an input stream that contains data in deflate compressed format and outputs the
-	uncompressed data.
-*/
-deprecated("Use createDeflateInputStream instead.")
-class DeflateInputStream : ZlibInputStream {
-	@safe this(InputStream dst)
-	{
-		super(dst, HeaderFormat.deflate);
-	}
-}
-
-
-/**
-	Takes an input stream that contains data in gzip compressed format and outputs the
-	uncompressed data.
-*/
-deprecated("Use createGzipInputStream instead.")
-class GzipInputStream : ZlibInputStream {
-	this(InputStream dst)
-	@safe {
-		super(dst, HeaderFormat.gzip);
-	}
-}
 
 unittest {
 	import vibe.stream.memory;
@@ -278,12 +230,6 @@ class ZlibInputStream : InputStream {
 		gzip,
 		deflate,
 		automatic
-	}
-
-	deprecated("Use createGzipInputStream/createDeflateInputStream instead.")
-	this(InputStream src, HeaderFormat type)
-	{
-		this(interfaceProxy!InputStream(src), type, true);
 	}
 
 	/// private

@@ -6,7 +6,10 @@
 	Authors: Sönke Ludwig
 */
 module vibe.stream.openssl;
-version(Have_openssl):
+
+version (VibeNoSSL) {}
+else version(Have_openssl):
+
 import vibe.core.log;
 import vibe.core.net;
 import vibe.core.stream;
@@ -476,7 +479,15 @@ final class OpenSSLStream : TLSStream {
 
 	alias read = Stream.read;
 
-	size_t write(in ubyte[] bytes_, IOMode mode)
+	static if (is(typeof(.OutputStream.outputStreamVersion)) && .OutputStream.outputStreamVersion > 1) {
+		override size_t write(scope const(ubyte)[] bytes_, IOMode mode) { return doWrite(bytes_, mode); }
+	} else {
+		override size_t write(in ubyte[] bytes_, IOMode mode) { return doWrite(bytes_, mode); }
+	}
+
+	alias write = Stream.write;
+
+	private size_t doWrite(scope const(ubyte)[] bytes_, IOMode mode)
 	{
 		const(ubyte)[] bytes = bytes_;
 
@@ -495,8 +506,6 @@ final class OpenSSLStream : TLSStream {
 
 		return nbytes;
 	}
-
-	alias write = Stream.write;
 
 	void flush()
 	{
@@ -822,7 +831,7 @@ final class OpenSSLContext : TLSContext {
 	{
 		static if (!haveALPN) assert(false, "OpenSSL support not compiled with ALPN enabled. Use VibeForceALPN.");
 		else {
-			import vibe.utils.memory : allocArray, freeArray, manualAllocator;
+			import vibe.internal.memory_legacy : allocArray, freeArray, manualAllocator;
 			ubyte[] alpn;
 			size_t len;
 			foreach (string alpn_value; alpn_list)

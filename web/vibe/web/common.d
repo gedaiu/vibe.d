@@ -461,7 +461,7 @@ class RestException : HTTPStatusException {
 	this (int status, Json jsonResult, string file = __FILE__, int line = __LINE__,
 		Throwable next = null) @safe
 	{
-		if (jsonResult.type == Json.Type.Object && jsonResult["statusMessage"].type == Json.Type.String) {
+		if (jsonResult.type == Json.Type.object && jsonResult["statusMessage"].type == Json.Type.string) {
 			super(status, jsonResult["statusMessage"].get!string, file, line, next);
 		}
 		else {
@@ -578,7 +578,7 @@ package alias DefaultSerializerT = ResultSerializer!(
 /// Convenience template to get all the ResultSerializers for a function
 package template ResultSerializersT(alias func) {
 	alias DefinedSerializers = getUDAs!(func, ResultSerializer);
-	static if (getUDAs!(func, ResultSerializer).length)
+	static if (DefinedSerializers.length)
 		alias ResultSerializersT = DefinedSerializers;
 	else
 		alias ResultSerializersT = AliasSeq!(DefaultSerializerT);
@@ -849,21 +849,6 @@ enum MethodStyle
 	lowerDashed,
 	/// UPPER-CASE-NAMING
 	upperDashed,
-
-	deprecated
-	Unaltered = unaltered,
-	deprecated
-	CamelCase = camelCase,
-	deprecated
-	PascalCase = pascalCase,
-	deprecated
-	LowerCase = lowerCase,
-	deprecated
-	UpperCase = upperCase,
-	deprecated
-	LowerUnderscored = lowerUnderscored,
-	deprecated
-	UpperUnderscored = upperUnderscored,
 }
 
 

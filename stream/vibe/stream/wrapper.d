@@ -63,21 +63,6 @@ class ProxyStream : Stream {
 		InterfaceProxy!(.Stream) m_underlying;
 	}
 
-	deprecated("Use createProxyStream instead.")
-	this(Stream stream = null)
-	{
-		m_underlying = interfaceProxy!Stream(stream);
-		m_input = interfaceProxy!InputStream(stream);
-		m_output = interfaceProxy!OutputStream(stream);
-	}
-
-	deprecated("Use createProxyStream instead.")
-	this(InputStream input, OutputStream output)
-	{
-		m_input = interfaceProxy!InputStream(input);
-		m_output = interfaceProxy!OutputStream(output);
-	}
-
 	/// private
 	this(InterfaceProxy!Stream stream, bool dummy)
 	{
@@ -113,7 +98,11 @@ class ProxyStream : Stream {
 
 	alias read = Stream.read;
 
-	size_t write(in ubyte[] bytes, IOMode mode) { return m_output.write(bytes, mode); }
+	static if (is(typeof(.OutputStream.outputStreamVersion)) && .OutputStream.outputStreamVersion > 1) {
+		override size_t write(scope const(ubyte)[] bytes, IOMode mode) { return m_output.write(bytes, mode); }
+	} else {
+		override size_t write(in ubyte[] bytes, IOMode mode) { return m_output.write(bytes, mode); }
+	}
 
 	alias write = Stream.write;
 
@@ -139,18 +128,6 @@ class ConnectionProxyStream : ConnectionStream {
 		InterfaceProxy!Stream m_underlying;
 		InterfaceProxy!InputStream m_input;
 		InterfaceProxy!OutputStream m_output;
-	}
-
-	deprecated("Use createConnectionProxyStream instead.")
-	this(Stream stream, ConnectionStream connection_stream)
-	{
-		this(interfaceProxy!Stream(stream), interfaceProxy!ConnectionStream(connection_stream), true);
-	}
-
-	deprecated("Use createConnectionProxyStream instead.")
-	this(InputStream input, OutputStream output, ConnectionStream connection_stream)
-	{
-		this(interfaceProxy!InputStream(input), interfaceProxy!OutputStream(output), interfaceProxy!ConnectionStream(connection_stream), true);
 	}
 
 	/// private
@@ -218,7 +195,11 @@ class ConnectionProxyStream : ConnectionStream {
 
 	alias read = ConnectionStream.read;
 
-	size_t write(in ubyte[] bytes, IOMode mode) { return m_output.write(bytes, mode); }
+	static if (is(typeof(.OutputStream.outputStreamVersion)) && .OutputStream.outputStreamVersion > 1) {
+		size_t write(scope const(ubyte)[] bytes, IOMode mode) { return m_output.write(bytes, mode); }
+	} else {
+		size_t write(in ubyte[] bytes, IOMode mode) { return m_output.write(bytes, mode); }
+	}
 
 	alias write = ConnectionStream.write;
 
@@ -242,9 +223,6 @@ class ConnectionProxyStream : ConnectionStream {
 	after a call to front. This property allows the range to be used in
 	request-response scenarios.
 */
-deprecated("Use streamInputRange() instead.")
-StreamInputRange!OutputStream StreamInputRange()(InputStream stream) { return StreamInputRange!InputStream(stream); }
-/// ditto
 struct StreamInputRange(InputStream, size_t buffer_size = 256)
 	if (isInputStream!InputStream)
 {
@@ -297,9 +275,6 @@ auto streamInputRange(size_t buffer_size = 256, InputStream)(InputStream stream)
 /**
 	Implements a buffered output range interface on top of an OutputStream.
 */
-deprecated("Use streamOutputRange() instead.")
-StreamOutputRange!OutputStream StreamOutputRange()(OutputStream stream) { return StreamOutputRange!OutputStream(stream); }
-/// ditto
 struct StreamOutputRange(OutputStream, size_t buffer_size = 256)
 	if (isOutputStream!OutputStream)
 {
@@ -377,7 +352,7 @@ struct StreamOutputRange(OutputStream, size_t buffer_size = 256)
 
 	void put(const(dchar)[] elems) { foreach( ch; elems ) put(ch); }
 
-	private void writeToStream(in ubyte[] bytes)
+	private void writeToStream(scope const(ubyte)[] bytes)
 	{
 		// if the write fails, do not attempt another write in the destructor
 		// to avoid throwing an exception twice or nested

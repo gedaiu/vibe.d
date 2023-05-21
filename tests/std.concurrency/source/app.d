@@ -9,12 +9,12 @@ import core.stdc.stdlib : exit;
 __gshared Tid t1, t2;
 shared watchdog_count = 0;
 
-shared static this()
+void main()
 {
 	t1 = spawn({
 		// ensure that asynchronous operations run in parallel to receive()
 		int wc = 0;
-		runTask({ while (true) { sleep(250.msecs); wc++; logInfo("Watchdog receiver %s", wc); } });
+		runTask({ while (true) { sleepUninterruptible(250.msecs); wc++; logInfo("Watchdog receiver %s", wc); } });
 
 		bool finished = false;
 		try while (!finished) {

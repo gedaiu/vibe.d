@@ -585,8 +585,6 @@ enum HTTPServerOption {
 		option if the code is compiled in debug mode.
 	*/
 	defaults                  = () { auto ret = reuseAddress; debug ret |= errorStackTraces; return ret; } (),
-
-	deprecated("None has been renamed to none.") None = none
 }
 
 
@@ -1157,7 +1155,8 @@ final class HTTPServerRequest : HTTPRequest {
 	@property string rootDir()
 	const @safe {
 		import std.algorithm.searching : count;
-		auto depth = requestPath.bySegment.count!(s => s.name.length > 0);
+		import std.range : empty;
+		auto depth = requestPath.bySegment.count!(s => !s.name.empty);
 		if (depth > 0 && !requestPath.endsWithSlash) depth--;
 		return depth == 0 ? "./" : replicate("../", depth);
 	}
@@ -1776,7 +1775,7 @@ struct HTTPListener {
 	private this(size_t[] ids) @safe { m_virtualHostIDs = ids; }
 
 	@property NetworkAddress[] bindAddresses()
-	{
+	@safe {
 		NetworkAddress[] ret;
 		foreach (l; s_listeners)
 			if (l.m_virtualHosts.canFind!(v => m_virtualHostIDs.canFind(v.id))) {

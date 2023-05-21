@@ -386,12 +386,6 @@ final class ChunkedInputStream : InputStream
 		ulong m_bytesInCurrentChunk = 0;
 	}
 
-	deprecated("Use createChunkedInputStream() instead.")
-	this(InputStream stream)
-	{
-		this(interfaceProxy!InputStream(stream), true);
-	}
-
 	/// private
 	this(InterfaceProxy!InputStream stream, bool dummy)
 	{
@@ -490,12 +484,6 @@ final class ChunkedOutputStream : OutputStream {
 		ChunkExtensionCallback m_chunkExtensionCallback = null;
 	}
 
-	deprecated("Use createChunkedOutputStream() instead.")
-	this(OutputStream stream, IAllocator alloc = vibeThreadAllocator())
-	{
-		this(interfaceProxy!OutputStream(stream), alloc, true);
-	}
-
 	/// private
 	this(InterfaceProxy!OutputStream stream, IAllocator alloc, bool dummy)
 	{
@@ -549,7 +537,15 @@ final class ChunkedOutputStream : OutputStream {
 		}
 	}
 
-	size_t write(in ubyte[] bytes_, IOMode mode)
+	static if (is(typeof(.OutputStream.outputStreamVersion)) && .OutputStream.outputStreamVersion > 1) {
+		override size_t write(scope const(ubyte)[] bytes_, IOMode mode) { return doWrite(bytes_, mode); }
+	} else {
+		override size_t write(in ubyte[] bytes_, IOMode mode) { return doWrite(bytes_, mode); }
+	}
+
+	alias write = OutputStream.write;
+
+	private size_t doWrite(scope const(ubyte)[] bytes_, IOMode mode)
 	{
 		assert(!m_finalized);
 		const(ubyte)[] bytes = bytes_;
@@ -568,8 +564,6 @@ final class ChunkedOutputStream : OutputStream {
 		}
 		return nbytes;
 	}
-
-	alias write = OutputStream.write;
 
 	void flush()
 	{

@@ -38,6 +38,9 @@ import core.checkedint : addu;
 */
 URL parseUserURL(string url, string default_schema)
 {
+	if (default_schema.length && !url.startsWith("/") && !url.canFind("://"))
+		url = default_schema ~ "://" ~ url;
+
 	return URL(url, false).normalized;
 }
 
@@ -56,6 +59,9 @@ unittest {
 	assert(url.host == "xn--i---5r6aq903fubqabumj4g.io");
 	url = parseUserURL("https://hello🌍.i-❤-이모티콘.com", "foo");
 	assert(url.host == "xn--hello-oe93d.xn--i---5r6aq903fubqabumj4g.com");
+	// default schema addition
+	assert(parseUserURL("example.com/foo/bar", "sftp") == URL("sftp://example.com/foo/bar"));
+	assert(parseUserURL("example.com:1234", "https") == URL("https://example.com:1234/"));
 }
 
 
@@ -570,7 +576,7 @@ struct URL {
 	URL opBinary(string OP, Path)(Path.Segment rhs) const if (OP == "~" && isAnyPath!Path) { return URL(m_schema, m_host, m_port, this.path ~ rhs); }
 	void opOpAssign(string OP, Path)(Path rhs) if (OP == "~" && isAnyPath!Path) { this.path = this.path ~ rhs; }
 	void opOpAssign(string OP, Path)(Path.Segment rhs) if (OP == "~" && isAnyPath!Path) { this.path = this.path ~ rhs; }
-	static if (is(InetPath.Segment2)) {
+	static if (is(InetPath.Segment2) && !is(InetPath.Segment2 == InetPath.Segment)) {
 		URL opBinary(string OP, Path)(Path.Segment2 rhs) const if (OP == "~" && isAnyPath!Path) { return URL(m_schema, m_host, m_port, this.path ~ rhs); }
 		void opOpAssign(string OP, Path)(Path.Segment2 rhs) if (OP == "~" && isAnyPath!Path) { this.path = this.path ~ rhs; }
 	}
@@ -1141,4 +1147,16 @@ version (Windows) unittest { // UNC paths
 	auto p = url.toNativePath;
 	p.normalize(); // convert slash to backslash if necessary
 	assert(p == WindowsPath(`\\server\share\path`));
+}
+
+unittest {
+	assert((URL.parse("http://example.com/foo") ~ InetPath("bar")).toString()
+		== "http://example.com/foo/bar");
+	assert((URL.parse("http://example.com/foo") ~ InetPath.Segment("bar")).toString()
+		== "http://example.com/foo/bar");
+
+	URL url = URL.parse("http://example.com/");
+	url ~= InetPath("foo");
+	url ~= InetPath.Segment("bar");
+	assert(url.toString() == "http://example.com/foo/bar");
 }

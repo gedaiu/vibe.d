@@ -85,7 +85,7 @@ final class MongoSessionStore : SessionStore {
 	Session create()
 	{
 		auto s = createSessionInstance();
-		m_sessions.insert(SessionEntry(s.id, Clock.currTime(UTC())));
+		m_sessions.insertOne(SessionEntry(s.id, Clock.currTime(UTC())));
 		return s;
 	}
 
@@ -98,13 +98,15 @@ final class MongoSessionStore : SessionStore {
 
 	void set(string id, string name, Variant value)
 	@trusted {
-		m_sessions.update(["_id": id], ["$set": [name.escape: value.get!Bson, "time": Clock.currTime(UTC()).serializeToBson]]);
+		m_sessions.updateOne(["_id": id], ["$set": [name.escape: value.get!Bson, "time": Clock.currTime(UTC()).serializeToBson]]);
 	}
 
 	Variant get(string id, string name, lazy Variant defaultVal)
 	@trusted {
 		auto f = name.escape;
-		auto r = m_sessions.findOne(["_id": id], [f: 1]);
+		FindOptions options;
+		options.projection = Bson([f: Bson(1)]);
+		auto r = m_sessions.findOne(["_id": id], options);
 		if (r.isNull) return defaultVal;
 		auto v = r.tryIndex(f);
 		if (v.isNull) return defaultVal;
@@ -114,19 +116,21 @@ final class MongoSessionStore : SessionStore {
 	bool isKeySet(string id, string key)
 	{
 		auto f = key.escape;
-		auto r = m_sessions.findOne(["_id": id], [f: 1]);
+		FindOptions options;
+		options.projection = Bson([f: Bson(1)]);
+		auto r = m_sessions.findOne(["_id": id], options);
 		if (r.isNull) return false;
 		return !r.tryIndex(f).isNull;
 	}
 
 	void remove(string id, string key)
 	{
-		m_sessions.update(["_id": id], ["$unset": [key.escape: 1]]);
+		m_sessions.updateOne(["_id": id], ["$unset": [key.escape: 1]]);
 	}
 
 	void destroy(string id)
 	{
-		m_sessions.remove(["_id": id]);
+		m_sessions.deleteOne(["_id": id]);
 	}
 
 	int iterateSession(string id, scope int delegate(string key) @safe del)
