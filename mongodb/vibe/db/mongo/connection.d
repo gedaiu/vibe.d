@@ -144,6 +144,7 @@ final class MongoConnection {
 		int m_msgid = 1;
 		StreamOutputRange!(InterfaceProxy!Stream) m_outRange;
 		ServerDescription m_description;
+		MongoHost m_connectedHost;
 		/// Flag to prevent recursive connections when server closes connection while connecting
 		bool m_allowReconnect;
 		bool m_isAuthenticating;
@@ -164,7 +165,7 @@ final class MongoConnection {
 		m_settings = cfg;
 	}
 
-	void connectToHost(MongoHost host) {
+	void connectToHost(MongoHost host, bool doAuthenticate = true) {
 		bool isTLS;
 
 		/*
@@ -256,21 +257,28 @@ final class MongoConnection {
 			m_supportsOpMsg = true;
 
 		m_bytesRead = 0;
+		m_connectedHost = host;
+
+		if (doAuthenticate) {
+			doAuth(isTLS);
+			logInfo("Connected to: %s primary=%s secondary=%s", m_description.me, m_description.isPrimary, m_description.secondary);
+		} else {
+			logDiagnostic("Probed: %s primary=%s secondary=%s", m_description.me, m_description.isPrimary, m_description.secondary);
+		}
+	}
+
+	private void doAuth(bool isTLS)
+	{
 		auto authMechanism = m_settings.authMechanism;
+
 		if (authMechanism == MongoAuthMechanism.none)
 		{
 			if (m_settings.sslPEMKeyFile != null && m_description.satisfiesVersion(WireVersion.v26))
-			{
 				authMechanism = MongoAuthMechanism.mongoDBX509;
-			}
 			else if (m_settings.digest.length)
-			{
-				// SCRAM-SHA-1 default since 3.0, otherwise use legacy authentication
-				if (m_description.satisfiesVersion(WireVersion.v30))
-					authMechanism = MongoAuthMechanism.scramSHA1;
-				else
-					authMechanism = MongoAuthMechanism.mongoDBCR;
-			}
+				authMechanism = m_description.satisfiesVersion(WireVersion.v30)
+					? MongoAuthMechanism.scramSHA1
+					: MongoAuthMechanism.mongoDBCR;
 		}
 
 		if (authMechanism == MongoAuthMechanism.mongoDBCR && m_description.satisfiesVersion(WireVersion.v40))
@@ -288,6 +296,7 @@ final class MongoConnection {
 		m_isAuthenticating = true;
 		scope (exit)
 			m_isAuthenticating = false;
+
 		final switch (authMechanism)
 		{
 		case MongoAuthMechanism.none:
@@ -302,15 +311,15 @@ final class MongoConnection {
 			authenticate();
 			break;
 		}
-
-		logInfo("Connected to: %s primary=%s secondary=%s", m_description.me, m_description.isPrimary, m_description.secondary);
 	}
 
+	deprecated("Topology discovery is now handled by MongoClient. Use connectToHost instead.")
 	void connect()
 	{
 		connect(m_settings.readPreference);
 	}
 
+	deprecated("Topology discovery is now handled by MongoClient. Use connectToHost instead.")
 	void connect(ReadPreference readPreference)
 	{
 		TopologyDescription topology;
@@ -957,7 +966,7 @@ final class MongoConnection {
 	private int send(ARGS...)(OpCode code, int response_to, scope ARGS args)
 	{
 		if( !connected() ) {
-			if (m_allowReconnect) connect();
+			if (m_allowReconnect) connectToHost(m_connectedHost);
 			else if (m_isAuthenticating) throw new MongoAuthException("Connection got closed while authenticating");
 			else throw new MongoDriverException("Connection got closed while connecting");
 		}
@@ -976,7 +985,7 @@ final class MongoConnection {
 	private int sendMsg(int response_to, uint flagBits, Bson document)
 	{
 		if( !connected() ) {
-			if (m_allowReconnect) connect();
+			if (m_allowReconnect) connectToHost(m_connectedHost);
 			else if (m_isAuthenticating) throw new MongoAuthException("Connection got closed while authenticating");
 			else throw new MongoDriverException("Connection got closed while connecting");
 		}
@@ -1195,6 +1204,13 @@ private int sendLength(ARGS...)(scope ARGS args)
 	else return sendLength(args[0 .. $/2]) + sendLength(args[$/2 .. $]);
 }
 
+struct TopologyVersion
+{
+@optional:
+	BsonObjectID processId;
+	long counter = -1;
+}
+
 struct ServerDescription
 {
 	enum ServerType
@@ -1210,11 +1226,17 @@ struct ServerDescription
 		RSGhost
 	}
 
+	static struct LastWrite
+	{
+	@optional:
+		Nullable!BsonDate lastWriteDate;
+	}
+
 @optional:
 	string address;
 	string error;
 	float roundTripTime = 0;
-	Nullable!BsonDate lastWriteDate;
+	LastWrite lastWrite;
 	Nullable!BsonObjectID opTime;
 	ServerType type = ServerType.unknown;
 	int minWireVersion, maxWireVersion;
@@ -1225,6 +1247,7 @@ struct ServerDescription
 	Nullable!int setVersion;
 	Nullable!BsonObjectID electionId;
 	string primary;
+	Nullable!TopologyVersion topologyVersion;
 
 	/// Deprecated since MongoDB 5.0: the `isMaster` command was replaced by `hello`.
 	/// The `secondary` field itself is still present in the `hello` response.
@@ -1235,8 +1258,12 @@ struct ServerDescription
 	bool ismaster;
 
 	bool isWritablePrimary;
-	string lastUpdateTime = "infinity ago";
+	bool arbiterOnly;
+	string msg;
 	Nullable!int logicalSessionTimeoutMinutes;
+
+	/// Set by the driver after probing, not deserialized from the server response.
+	long lastUpdateTimeUsecs;
 
 	bool satisfiesVersion(WireVersion wireVersion) @safe const @nogc pure nothrow
 	{
@@ -1256,6 +1283,31 @@ struct ServerDescription
 	bool isReplicaSetMember() @safe const @nogc pure nothrow
 	{
 		return setName.length > 0;
+	}
+
+	ServerType classifiedType() @safe const @nogc pure nothrow
+	{
+		if (msg == "isdbgrid")
+			return ServerType.mongos;
+
+		if (setName.length)
+		{
+			if (isPrimary)
+				return ServerType.RSPrimary;
+
+			if (isSecondaryNode)
+				return ServerType.RSSecondary;
+
+			if (arbiterOnly)
+				return ServerType.RSArbiter;
+
+			return ServerType.RSOther;
+		}
+
+		if (isPrimary)
+			return ServerType.standalone;
+
+		return ServerType.unknown;
 	}
 }
 
@@ -1335,6 +1387,40 @@ package bool matchesReplicaSet(string expectedSet, ref const ServerDescription d
 {
 	ServerDescription desc;
 	assert(matchesReplicaSet("", desc));
+}
+
+/**
+ * Probes a MongoDB host by performing a hello handshake without authentication.
+ *
+ * Creates a temporary connection, sends the hello command, measures round-trip
+ * time, and returns the resulting ServerDescription. Used by MongoClient for
+ * topology discovery without consuming a pool connection.
+ */
+package ServerDescription probeServer(MongoClientSettings settings, MongoHost host) @safe
+{
+	import std.datetime.stopwatch : StopWatch;
+
+	StopWatch sw;
+	sw.start();
+
+	auto conn = new MongoConnection(settings);
+	scope (exit) {
+		conn.disconnect();
+		() @trusted { destroy(conn); } ();
+	}
+
+	conn.connectToHost(host, false);
+
+	sw.stop();
+
+	auto desc = conn.m_description;
+	desc.roundTripTime = sw.peek.total!"usecs" / 1_000_000.0f;
+
+	import core.time : MonoTime;
+	auto now = MonoTime.currTime;
+	desc.lastUpdateTimeUsecs = now.ticks * 1_000_000 / MonoTime.ticksPerSecond;
+
+	return desc;
 }
 
 /// satisfiesVersion returns true for versions up to maxWireVersion v36
