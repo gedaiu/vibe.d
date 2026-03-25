@@ -164,7 +164,7 @@ final class MongoConnection {
 		m_settings = cfg;
 	}
 
-	void connectToHost(MongoHost host) {
+	void connectToHost(MongoHost host, bool doAuthenticate = true) {
 		bool isTLS;
 
 		/*
@@ -256,21 +256,25 @@ final class MongoConnection {
 			m_supportsOpMsg = true;
 
 		m_bytesRead = 0;
+
+		if (doAuthenticate)
+			doAuth(isTLS);
+
+		logInfo("Connected to: %s primary=%s secondary=%s", m_description.me, m_description.isPrimary, m_description.secondary);
+	}
+
+	private void doAuth(bool isTLS)
+	{
 		auto authMechanism = m_settings.authMechanism;
+
 		if (authMechanism == MongoAuthMechanism.none)
 		{
 			if (m_settings.sslPEMKeyFile != null && m_description.satisfiesVersion(WireVersion.v26))
-			{
 				authMechanism = MongoAuthMechanism.mongoDBX509;
-			}
 			else if (m_settings.digest.length)
-			{
-				// SCRAM-SHA-1 default since 3.0, otherwise use legacy authentication
-				if (m_description.satisfiesVersion(WireVersion.v30))
-					authMechanism = MongoAuthMechanism.scramSHA1;
-				else
-					authMechanism = MongoAuthMechanism.mongoDBCR;
-			}
+				authMechanism = m_description.satisfiesVersion(WireVersion.v30)
+					? MongoAuthMechanism.scramSHA1
+					: MongoAuthMechanism.mongoDBCR;
 		}
 
 		if (authMechanism == MongoAuthMechanism.mongoDBCR && m_description.satisfiesVersion(WireVersion.v40))
@@ -288,6 +292,7 @@ final class MongoConnection {
 		m_isAuthenticating = true;
 		scope (exit)
 			m_isAuthenticating = false;
+
 		final switch (authMechanism)
 		{
 		case MongoAuthMechanism.none:
@@ -302,8 +307,6 @@ final class MongoConnection {
 			authenticate();
 			break;
 		}
-
-		logInfo("Connected to: %s primary=%s secondary=%s", m_description.me, m_description.isPrimary, m_description.secondary);
 	}
 
 	void connect()
@@ -1315,6 +1318,36 @@ package bool matchesReplicaSet(string expectedSet, ref const ServerDescription d
 {
 	ServerDescription desc;
 	assert(matchesReplicaSet("", desc));
+}
+
+/**
+ * Probes a MongoDB host by performing a hello handshake without authentication.
+ *
+ * Creates a temporary connection, sends the hello command, measures round-trip
+ * time, and returns the resulting ServerDescription. Used by MongoClient for
+ * topology discovery without consuming a pool connection.
+ */
+package ServerDescription probeServer(MongoClientSettings settings, MongoHost host) @safe
+{
+	import std.datetime.stopwatch : StopWatch;
+
+	StopWatch sw;
+	sw.start();
+
+	auto conn = new MongoConnection(settings);
+	scope (exit) {
+		conn.disconnect();
+		() @trusted { destroy(conn); } ();
+	}
+
+	conn.connectToHost(host, false);
+
+	sw.stop();
+
+	auto desc = conn.m_description;
+	desc.roundTripTime = sw.peek.total!"usecs" / 1_000_000.0f;
+
+	return desc;
 }
 
 /// satisfiesVersion returns true for versions up to maxWireVersion v36
