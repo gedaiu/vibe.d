@@ -74,6 +74,7 @@ bool parseMongoDBUrl(out MongoClientSettings cfg, string url)
 			return false;
 		}
 
+		cfg.password = password;
 		cfg.digest = MongoClientSettings.makeDigest(cfg.username, password);
 	}
 
@@ -861,6 +862,16 @@ enum MongoAuthMechanism
 	scramSHA1,
 
 	/**
+	 * Use SCRAM-SHA-256 as defined in [RFC 7677](http://tools.ietf.org/html/rfc7677)
+	 *
+	 * Preferred over SCRAM-SHA-1 when supported by the server. Uses the raw
+	 * password (with SASLprep) instead of the MD5 digest.
+	 *
+	 * MongoDB: 4.0–
+	 */
+	scramSHA256,
+
+	/**
 	 * Forces login through the legacy MONGODB-CR authentication mechanism. This
 	 * mechanism is a nonce and MD5 based system.
 	 *
@@ -881,6 +892,7 @@ private MongoAuthMechanism parseAuthMechanism(string str)
 @safe {
 	switch (str) {
 		case "SCRAM-SHA-1": return MongoAuthMechanism.scramSHA1;
+		case "SCRAM-SHA-256": return MongoAuthMechanism.scramSHA256;
 		case "MONGODB-CR": return MongoAuthMechanism.mongoDBCR;
 		case "MONGODB-X509": return MongoAuthMechanism.mongoDBX509;
 		default: throw new Exception("Auth mechanism \"" ~ str ~ "\" not supported");
@@ -1023,6 +1035,14 @@ class MongoClientSettings
 	 * Use $(LREF authenticatePassword) to automatically fill this.
 	 */
 	string digest;
+
+	/**
+	 * The raw password, needed for SCRAM-SHA-256 which does not use the MD5
+	 * digest. Stored alongside digest for backward compatibility.
+	 *
+	 * Use $(LREF authenticatePassword) to automatically fill this.
+	 */
+	string password;
 
 	/**
 	 * Amount of maximum simultaneous connections to have open at the same time.
@@ -1257,6 +1277,7 @@ class MongoClientSettings
 	void authenticatePassword(string username, string password)
 	@safe {
 		this.username = username;
+		this.password = password;
 		this.digest = MongoClientSettings.makeDigest(username, password);
 	}
 
